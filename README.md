@@ -105,6 +105,3 @@ The Frontend: A reactive SPA (Single Page Application) built with Vite and React
 
 [ ] Dark Mode: Adding a theme switcher for better accessibility.
 
-👤 Author
-
-Marina Trajko - GitHub Profile
