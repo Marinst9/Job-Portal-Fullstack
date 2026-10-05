@@ -1,7 +1,7 @@
 package com.marina.demo.model;
 
 import jakarta.persistence.*;
-import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.NoArgsConstructor;
 
@@ -19,7 +19,10 @@ public class User {
     @Column(unique = true, nullable = false)
     private String email;
 
-    @JsonIgnore // Ова спречува Jackson да го „чита“ пасвордот при пренос на податоци
+    // WRITE_ONLY: лозинката може да се прими во request (регистрација/најава),
+    // но никогаш не се враќа во JSON одговор. @JsonIgnore би ја игнорирал и при
+    // примање, па регистрацијата зачувуваше корисник без лозинка.
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     private String password;
 
     @Enumerated(EnumType.STRING)

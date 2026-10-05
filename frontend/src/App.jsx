@@ -1,6 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { Upload, Loader2, CheckCircle2, Briefcase, PlusCircle, LogOut, LayoutDashboard, Search, MapPin, AlertCircle } from 'lucide-react';
 
+const API = import.meta.env.VITE_API_URL || 'http://localhost:8081';
+
+// Ја чита JSON грешката од backend-от ({ error: "..." }), ако ја има.
+const errorMessage = async (res, fallback) => {
+  try {
+    const body = await res.json();
+    return body.error || fallback;
+  } catch {
+    return fallback;
+  }
+};
+
 const App = () => {
   // --- States ---
   const [jobs, setJobs] = useState([]);
@@ -37,7 +49,7 @@ const App = () => {
   }, [user]);
 
   const loadJobs = () => {
-    fetch('http://localhost:8081/api/v1/jobs')
+    fetch(`${API}/api/v1/jobs`)
       .then(res => res.json())
       .then(data => setJobs(data))
       .catch(() => setJobs([]));
@@ -45,7 +57,8 @@ const App = () => {
 
   const loadEmployerData = async () => {
     try {
-      const res = await fetch('http://localhost:8081/api/v1/applications');
+      const res = await fetch(`${API}/api/v1/applications/employer/${user.id}`);
+      if (!res.ok) throw new Error(await errorMessage(res, 'Грешка при вчитување апликации'));
       const data = await res.json();
       setEmployerApplications(data);
     } catch (e) { console.error("Грешка при вчитување апликации", e); }
@@ -55,7 +68,7 @@ const App = () => {
     e.preventDefault();
     const endpoint = authMode === 'login' ? 'login' : 'register';
     try {
-      const res = await fetch(`http://localhost:8081/api/v1/auth/${endpoint}`, {
+      const res = await fetch(`${API}/api/v1/auth/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(authData)
@@ -69,7 +82,7 @@ const App = () => {
       } else {
         alert(data.error || "Грешка при најава!");
       }
-    } catch (error) {
+    } catch {
       alert("Серверот не е достапен.");
     }
   };
@@ -84,7 +97,7 @@ const App = () => {
   const handlePostJob = async (e) => {
     e.preventDefault();
     const jobToSave = { ...newJob, employer: { id: user.id } };
-    const res = await fetch('http://localhost:8081/api/v1/jobs', {
+    const res = await fetch(`${API}/api/v1/jobs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(jobToSave)
@@ -92,6 +105,8 @@ const App = () => {
     if (res.ok) {
       setIsPostJobOpen(false);
       loadJobs();
+    } else {
+      alert(await errorMessage(res, 'Огласот не е зачуван.'));
     }
   };
 
@@ -101,12 +116,11 @@ const App = () => {
     const payload = {
       job: { id: selectedJob.id },
       user: { id: user.id },
-      coverLetter: cvText,
-      status: "PENDING"
+      coverLetter: cvText
     };
 
     try {
-        const res = await fetch('http://localhost:8081/api/v1/applications', {
+        const res = await fetch(`${API}/api/v1/applications`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -114,10 +128,11 @@ const App = () => {
       
           if (res.ok) {
             setSuccessMessage(true);
-            if (user?.role?.toUpperCase() === 'EMPLOYER') loadEmployerData();
             setTimeout(() => { setIsModalOpen(false); setSuccessMessage(false); }, 2000);
+          } else {
+            alert(await errorMessage(res, 'Апликацијата не е испратена.'));
           }
-    } catch (e) { alert("Грешка при праќање."); }
+    } catch { alert("Грешка при праќање."); }
     setIsSubmitting(false);
   };
 
@@ -130,7 +145,7 @@ const App = () => {
       setCvText(text);
       setScanning(true);
       try {
-        const res = await fetch('http://localhost:8081/api/v1/jobs/match', {
+        const res = await fetch(`${API}/api/v1/jobs/match`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ cvText: text })
@@ -223,11 +238,12 @@ const App = () => {
                       <span className="inline-block px-3 py-1 bg-slate-100 text-slate-600 rounded-lg text-xs font-bold uppercase tracking-tighter">{app.job?.title}</span>
                     </td>
                     <td className="p-8 text-center">
-                      <div className={`inline-flex items-center justify-center w-14 h-14 rounded-2xl text-lg font-black shadow-inner ${
+                      <div title={app.aiMatchScore == null ? 'AI не врати валидна оценка' : undefined} className={`inline-flex items-center justify-center w-14 h-14 rounded-2xl text-lg font-black shadow-inner ${
+                          app.aiMatchScore == null ? 'bg-slate-100 text-slate-400' :
                           app.aiMatchScore >= 75 ? 'bg-green-100 text-green-600' : 
                           app.aiMatchScore >= 45 ? 'bg-yellow-100 text-yellow-600' : 'bg-red-100 text-red-600'
                         }`}>
-                        {app.aiMatchScore || 0}%
+                        {app.aiMatchScore == null ? '—' : `${app.aiMatchScore}%`}
                       </div>
                     </td>
                     <td className="p-8 text-right">
@@ -259,7 +275,7 @@ const App = () => {
           <main className="max-w-6xl mx-auto p-6 -mt-12 grid grid-cols-1 md:grid-cols-2 gap-8 relative z-20 mb-20">
             {jobs.filter(j => j.title.toLowerCase().includes(searchTerm.toLowerCase())).map(job => (
               <div key={job.id} className="bg-white p-10 rounded-[3rem] border border-slate-200 hover:shadow-2xl hover:border-blue-200 transition-all relative group overflow-hidden">
-                {matches[job.id] && (
+                {matches[job.id] != null && (
                   <div className="absolute top-0 right-0 bg-green-500 text-white px-6 py-2 rounded-bl-3xl text-sm font-black shadow-lg animate-pulse">
                     AI MATCH: {matches[job.id]}%
                   </div>

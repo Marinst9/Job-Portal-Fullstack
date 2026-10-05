@@ -1,5 +1,8 @@
 package com.marina.demo.service;
 
+import com.marina.demo.exception.BadRequestException;
+import com.marina.demo.exception.ConflictException;
+import com.marina.demo.exception.ResourceNotFoundException;
 import com.marina.demo.model.ApplicationEntity;
 import com.marina.demo.model.JobEntity;
 import com.marina.demo.model.User;
@@ -17,10 +20,10 @@ public class ApplicationService {
     private final ApplicationRepository applicationRepository;
     private final JobRepository jobRepository;
     private final UserRepository userRepository;
-    private final AIService aiService; // Додадено за AI пресметка
+    private final AIService aiService;
 
-    public ApplicationService(ApplicationRepository applicationRepository, 
-                              JobRepository jobRepository, 
+    public ApplicationService(ApplicationRepository applicationRepository,
+                              JobRepository jobRepository,
                               UserRepository userRepository,
                               AIService aiService) {
         this.applicationRepository = applicationRepository;
@@ -31,35 +34,50 @@ public class ApplicationService {
 
     @Transactional
     public ApplicationEntity applyForJob(ApplicationEntity application) {
-        // 1. Поврзи со постоечки Job
+        if (application.getJob() == null || application.getJob().getId() == null) {
+            throw new BadRequestException("Недостасува Job ID.");
+        }
+        if (application.getUser() == null || application.getUser().getId() == null) {
+            throw new BadRequestException("Недостасува User ID.");
+        }
+
+        // 1. Постоечки оглас
         JobEntity job = jobRepository.findById(application.getJob().getId())
-                .orElseThrow(() -> new RuntimeException("Огласот не е пронајден!"));
-        application.setJob(job);
+                .orElseThrow(() -> new ResourceNotFoundException("Огласот не е пронајден."));
 
-        // 2. Сними/Најди корисник
-        User user = userRepository.findByEmail(application.getUser().getEmail())
-                .orElseGet(() -> {
-                    User newUser = application.getUser();
-                    if (newUser.getPassword() == null) newUser.setPassword("pass123");
-                    if (newUser.getRole() == null) newUser.setRole(User.Role.CANDIDATE);
-                    return userRepository.save(newUser);
-                });
-        application.setUser(user);
+        // 2. Постоечки корисник — по id. Порано се бараше по email (кој frontend-от
+        //    не го праќа) и се креираше/препишуваше корисник со null полиња.
+        User user = userRepository.findById(application.getUser().getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Корисникот не е пронајден."));
 
-        // 3. AI ПРЕСМЕТКА: Пресметај го процентот пред да снимиш
-        Integer score = aiService.calculateMatchScore(application.getCoverLetter(), job.getDescription());
-        application.setAiMatchScore(score);
+        if (user.getRole() != User.Role.CANDIDATE) {
+            throw new BadRequestException("Само кандидати можат да аплицираат.");
+        }
+        if (applicationRepository.existsByJob_IdAndUser_Id(job.getId(), user.getId())) {
+            throw new ConflictException("Веќе имате аплицирано за овој оглас.");
+        }
 
-        // 4. Постави системски вредности
-        application.setAppliedAt(LocalDateTime.now());
-        if (application.getStatus() == null) application.setStatus("PENDING");
+        ApplicationEntity toSave = new ApplicationEntity();
+        toSave.setJob(job);
+        toSave.setUser(user);
+        toSave.setCoverLetter(application.getCoverLetter());
 
-        return applicationRepository.save(application);
+        // 3. AI оценка (null ако моделот не врати валиден број)
+        toSave.setAiMatchScore(aiService.calculateMatchScore(application.getCoverLetter(), job.getDescription()));
+
+        // 4. Системски вредности — не ги земаме од клиентот
+        toSave.setAppliedAt(LocalDateTime.now());
+        toSave.setStatus("PENDING");
+
+        return applicationRepository.save(toSave);
     }
 
-    // Земање апликации за конкретен оглас (За Employer Dashboard)
     public List<ApplicationEntity> getApplicationsForJob(Long jobId) {
-        return applicationRepository.findByJob_IdOrderByAiMatchScoreDesc(jobId);
+        return applicationRepository.findByJobIdRanked(jobId);
+    }
+
+    public List<ApplicationEntity> getApplicationsForEmployer(Long employerId) {
+        return applicationRepository.findByEmployerIdRanked(employerId);
     }
 
     public List<ApplicationEntity> getAllApplications() {

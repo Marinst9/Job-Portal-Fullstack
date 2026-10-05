@@ -1,8 +1,12 @@
 package com.marina.demo.service;
 
 import com.marina.demo.dto.JobDTO;
+import com.marina.demo.exception.BadRequestException;
+import com.marina.demo.exception.ResourceNotFoundException;
 import com.marina.demo.model.JobEntity;
+import com.marina.demo.model.User;
 import com.marina.demo.repository.JobRepository;
+import com.marina.demo.repository.UserRepository;
 import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 
@@ -14,9 +18,30 @@ import java.util.Optional;
 public class JobService {
 
     private final JobRepository repository;
+    private final UserRepository userRepository;
 
-    public JobService(JobRepository repository) {
+    public JobService(JobRepository repository, UserRepository userRepository) {
         this.repository = repository;
+        this.userRepository = userRepository;
+    }
+
+    /** Нов оглас: работодавачот мора да постои и да има улога EMPLOYER. */
+    public JobEntity createJob(JobEntity job) {
+        if (job.getTitle() == null || job.getTitle().isBlank()
+                || job.getDescription() == null || job.getDescription().isBlank()) {
+            throw new BadRequestException("Наслов и опис се задолжителни.");
+        }
+        if (job.getEmployer() == null || job.getEmployer().getId() == null) {
+            throw new BadRequestException("Недостасува Employer ID.");
+        }
+        User employer = userRepository.findById(job.getEmployer().getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Работодавачот не е пронајден."));
+        if (employer.getRole() != User.Role.EMPLOYER) {
+            throw new BadRequestException("Само работодавачи можат да објавуваат огласи.");
+        }
+        job.setId(null);
+        job.setEmployer(employer);
+        return repository.save(job);
     }
 
     public List<JobEntity> findAllJobs() {
