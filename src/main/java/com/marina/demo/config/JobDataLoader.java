@@ -4,52 +4,63 @@ import com.marina.demo.model.JobEntity;
 import com.marina.demo.model.User;
 import com.marina.demo.repository.JobRepository;
 import com.marina.demo.repository.UserRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.crypto.password.PasswordEncoder;
+
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.Objects;
 
+/**
+ * Демо податоци за локален развој:
+ *   candidate@marinajobs.mk / test  (CANDIDATE)
+ *   employer@marinajobs.mk  / test  (EMPLOYER, ги поседува трите огласи)
+ */
 @Configuration
 public class JobDataLoader {
 
+    private static final Logger log = LoggerFactory.getLogger(JobDataLoader.class);
+
     @Bean
-    CommandLineRunner commandLineRunner(JobRepository repository, UserRepository userRepository) {
+    CommandLineRunner commandLineRunner(JobRepository repository, UserRepository userRepository, PasswordEncoder passwordEncoder) {
         return args -> {
-            if (userRepository.count() == 0) {
-                User defaultUser = new User();
-                defaultUser.setFullName("Тест Корисник");
-                defaultUser.setEmail("test@marinajobs.mk");
-                defaultUser.setPassword("test");
-                defaultUser.setRole(User.Role.CANDIDATE);
-                userRepository.save(defaultUser);
+            if (userRepository.count() > 0 || repository.count() > 0) {
+                return;
             }
-            if (repository.count() == 0) {
-                JobEntity job1 = new JobEntity();
-                job1.setTitle("Java Developer");
-                job1.setDescription("Building scalable backends with Spring Boot");
-                job1.setCompanyName("Intelegenta");
-                job1.setLocation("Skopje");
-                job1.setSalary(new BigDecimal("1200"));
 
-                JobEntity job2 = new JobEntity();
-                job2.setTitle("React Architect");
-                job2.setDescription("Designing modern UIs with React and Tailwind");
-                job2.setCompanyName("AITONIX");
-                job2.setLocation("Remote");
-                job2.setSalary(new BigDecimal("1500"));
+            User candidate = newUser("Тест Кандидат", "candidate@marinajobs.mk", passwordEncoder.encode("test"), User.Role.CANDIDATE);
+            User employer = newUser("Тест Работодавач", "employer@marinajobs.mk", passwordEncoder.encode("test"), User.Role.EMPLOYER);
+            userRepository.saveAll(List.of(candidate, employer));
 
-                JobEntity job3 = new JobEntity();
-                job3.setTitle("SQL Specialist");
-                job3.setDescription("Database optimization and PostgreSQL management");
-                job3.setCompanyName("Netcetera");
-                job3.setLocation("Bitola");
-                job3.setSalary(new BigDecimal("1100"));
-
-                repository.saveAll(Objects.requireNonNull(List.of(job1, job2, job3)));
-                System.out.println("--- Test data loaded into PostgreSQL successfully ---");
-            }
+            repository.saveAll(List.of(
+                newJob("Java Developer", "Building scalable backends with Spring Boot", "Intelegenta", "Skopje", "1200", employer),
+                newJob("React Architect", "Designing modern UIs with React and Tailwind", "AITONIX", "Remote", "1500", employer),
+                newJob("SQL Specialist", "Database optimization and PostgreSQL management", "Netcetera", "Bitola", "1100", employer)
+            ));
+            log.info("Demo data loaded: 2 users, 3 jobs");
         };
+    }
+
+    private static User newUser(String fullName, String email, String passwordHash, User.Role role) {
+        User u = new User();
+        u.setFullName(fullName);
+        u.setEmail(email);
+        u.setPassword(passwordHash);
+        u.setRole(role);
+        return u;
+    }
+
+    private static JobEntity newJob(String title, String description, String company, String location, String salary, User employer) {
+        JobEntity j = new JobEntity();
+        j.setTitle(title);
+        j.setDescription(description);
+        j.setCompanyName(company);
+        j.setLocation(location);
+        j.setSalary(new BigDecimal(salary));
+        j.setEmployer(employer);
+        return j;
     }
 }
